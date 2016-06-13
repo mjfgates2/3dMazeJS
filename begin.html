@@ -1,0 +1,279 @@
+<html>
+<head>
+<script src="three.min.js"></script>
+<script src="cannon.js"></script>
+<script src="maze.js"></script>
+<script src="buildMazeMeshList.js"></script>
+<script src="mazeCannon.js"></script>
+<script src="Lamp.js"></script>
+<script src="BlockAccessories.js"></script>
+<script src="SmilingSun.js"></script>
+<script src="Sunbeam.js"></script>
+<script src="Controls.js"></script>
+
+<script type="text/javascript">
+var renderer;
+var camera;
+var FIELD_OF_VIEW = 60;
+var FOG_COLOR = 0X303030;
+var NEAR = 0.15;
+var FAR = 190;
+var scene;
+var torch;
+var maze;
+var aMeshesAlready = null;
+var physics;
+var sun = undefined;
+var probabilityLamp;
+var radiansPerPel;
+var theControls;
+var now;
+var vJ = new THREE.Vector3(0, 1, 0);
+var pushCount = 100;
+
+
+// shim layer with setTimeout fallback
+window.requestAnimFrame = (function(){
+  return  window.requestAnimationFrame       ||
+          window.webkitRequestAnimationFrame ||
+          window.mozRequestAnimationFrame    ||
+          function( callback ){
+            window.setTimeout(callback, 1000 / 60);
+          };
+})();
+
+function updatePlayerPosition(elapsed)
+{
+	var velDesired = theControls.getVelocityDesired(elapsed);
+    physics.pushPlayerTowardVelocity(velDesired);
+    
+/*    if (pushCount < 100)
+    {
+        console.log("player at " + physics.getPlayer().position.toString() + 
+            " pushing to vel " + velDesired.toString());
+        pushCount++;
+    }  */
+    
+    physics.tick(elapsed);
+    
+    var pos = physics.getPlayer().position;
+    camera.position.set(pos.x, pos.y + 2, pos.z);
+	var euler = new THREE.Euler(theControls.getRho(), theControls.getTheta(), 0, "YZX");
+	camera.quaternion.setFromEuler(euler);
+// 	camera.setRotationFromAxisAngle(vJ, rWithMouse);
+		
+	torch.position.x = camera.position.x + 0.5;
+	torch.position.z = camera.position.z;
+    torch.position.y = camera.position.y - 0.25;
+}
+
+var lastNow = 0;
+function animationFrame()
+{
+    function doRound(num, mult) { return Math.round(num * mult) / mult; }
+	now = (new Date()).getTime();
+	updatePlayerPosition((now - lastNow)/1000);
+    lastNow = now;
+	var aMeshes = MazeMeshCreator.fromPlayerPosition();
+	if (aMeshes != aMeshesAlready)
+	{
+		if (aMeshesAlready !== null) 
+		{
+			scene.remove(aMeshesAlready);
+		}
+		scene.add(aMeshes);
+		aMeshesAlready = aMeshes;
+	}
+
+	renderer.clear();
+	renderer.render(scene, camera);
+	sun.render(renderer, camera);
+	
+	window.requestAnimFrame(animationFrame);
+}
+
+function start()
+{
+	var container = document.getElementById("threejs_container");
+	container.style.width = window.innerWidth - 16;
+	container.style.height = window.innerHeight - 16;
+	renderer = new THREE.WebGLRenderer();
+	scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(FOG_COLOR, 25, 50);
+    renderer.setClearColorHex(FOG_COLOR, 1);
+	renderer.autoClear = false;
+	camera = new THREE.PerspectiveCamera(FIELD_OF_VIEW, container.offsetWidth / container.offsetHeight,
+			NEAR, FAR);
+	scene.add(camera);
+	renderer.setSize(container.offsetWidth, container.offsetHeight);
+	container.appendChild(renderer.domElement);
+	
+	// The original idea here was that the user would click on, say, a brick, 
+	// and drag, and the brick would follow their finger. Not a *bad* idea,
+	// but it makes controls feel backwards.. swiping to the right turns you left.
+	// Also, it's slooow.
+	// Putting in the -2 reverses direction and makes moving faster.
+	theControls = new Controls(FIELD_OF_VIEW, container, -2);
+    
+	scene.add(new THREE.AmbientLight(0x202020 /* 0xFFFFFF */));
+	
+	torch = new THREE.PointLight(0xFFFFFF, 0.5, 8);
+	scene.add(torch);
+	
+	setLamps(.9, "bright");
+	newMaze(3, 3, 3);
+	
+    lastNow = (new Date()).getTime();
+	
+	window.requestAnimFrame(animationFrame);
+}
+
+function newMaze(cx, cy, cz)
+{
+	document.getElementById("MainMenu").style.visibility = "collapse";
+	maze = new Maze(cx, cy, cz);
+    MazeGen.run(maze);
+    physics = new MazePhysics(maze, 0.5);
+    var spacePos = maze.toSpaceCoords(
+		new THREE.Vector3(0, 0, 0));
+    spacePos.y += maze.cyBlock / 2;
+    physics.getPlayer().position.set(spacePos.x, spacePos.y, spacePos.z);
+    physics.getPlayer().velocity.set(0, 0, 0);
+
+	var sunPos = new THREE.Vector3(
+		maze.cx - 1,
+		maze.cy,
+		maze.cz - 1);
+	sun = new SmilingSun(maze.toSpaceCoords(sunPos));
+	sunPos.y = sunPos.y - 1;
+
+    // console.log("starting at " + spacePos.toString());
+	MazeMeshCreator.setMaze(maze, physics, sunPos, probabilityLamp);
+}
+
+function toggleOnScreenMovement()
+{
+	var elem = document.getElementById("MovementButtons");
+	if (elem.style.visibility === "visible" ||
+		elem.style.visibility === "")
+	{
+		elem.style.visibility = "collapse";
+	}
+	else
+	{
+		elem.style.visibility = "visible";
+	}
+}
+
+function launchMainMenu()
+{
+	var elem = document.getElementById("MainMenu");
+	elem.style.visibility = "visible";
+}
+
+var aLightButtonIds = [ "bright", "dim", "dark" ];
+function setLamps(brightness, idHighlight)
+{
+	probabilityLamp = brightness;
+	for (var i = 0; i < aLightButtonIds.length; i++)
+	{
+		document.getElementById(aLightButtonIds[i]).style.backgroundColor =
+			(idHighlight === aLightButtonIds[i]) ? "gray" : "";
+	}
+}
+</script>
+<style>
+	.onscreenbutton
+	{
+		border:2px solid white;
+		border-radius:5px;
+		opacity:0.6;
+		width:.5in;
+		height:.5in;
+	}
+
+	.onscreentextbutton
+	{
+		border:2px solid white;
+		border-radius:5px;
+		opacity:0.6;
+		height:.5in;
+	}
+	
+	.onscreenbuttontext
+	{
+		color:white;
+		text-align:center;
+		font-family:'Times New Roman',Times,serif;
+		font-size:.35in;
+		padding-left:2px;
+		padding-right:0;
+		margin-right:.2em;
+		margin-left:.2em;
+		-webkit-user-select: none;  /* Chrome all / Safari all */
+		-moz-user-select: none;     /* Firefox all */
+		-ms-user-select: none;      /* IE 10+ */
+		user-select:none;
+	}
+</style>
+</head>
+<body onload="start()" style="background-color:gray">
+<div id="threejs_container" style="position:relative;float:left;width:640;height:480;" tabindex="0"
+	>
+	<table id="MenuButtons" style="position:absolute;left:8px;top:8px;">
+		<tr>
+			<td class="onscreenbutton" onmousedown="launchMainMenu()"><span class="onscreenbuttontext">M</span></td>
+			<td class="onscreenbutton" onmousedown="toggleOnScreenMovement()"><span class="onscreenbuttontext">O</span><td>
+		</tr>
+	</table>
+	<table id="MovementButtons" style="position:absolute;left:244px;bottom:0;">
+		<tr>
+		<td><img class="onscreenbutton" id="osb_turnLeft"
+			src="graphics/TurnLeftArrow.png"></img></td>
+		<td><img class="onscreenbutton" id="osb_fwd"
+			src="graphics/UpArrow.png"></img></td>
+		<td><img class="onscreenbutton" id="osb_turnRight"
+			src="graphics/TurnRightArrow.png"></img></td>
+		</tr>
+		<tr>
+		<td><img class="onscreenbutton" id="osb_left"
+			src="graphics/LeftArrow.png"></img></td>
+		<td><img class="onscreenbutton" id="osb_back"
+			src="graphics/DownArrow.png"></img></td>
+		<td><img class="onscreenbutton" id="osb_right"
+			src="graphics/RightArrow.png"></img></td>
+		</tr>
+	</table>
+	<table id="MainMenu" style="position:absolute;top:40px;left:120px;visibility:collapse">
+		<tr><td class="onscreentextbutton" onmousedown="newMaze(3, 3, 3)">
+			<span class="onscreenbuttontext">New Easy Maze</span>	
+		</td></tr>
+		<tr><td class="onscreentextbutton" onmousedown="newMaze(5, 5, 5)">
+			<span class="onscreenbuttontext">New Medium Maze</span>	
+		</td></tr>
+		<tr><td class="onscreentextbutton" onmousedown="newMaze(7, 7, 7)">
+			<span class="onscreenbuttontext">New Hard Maze</span>	
+		</td></tr>
+		<tr><td class="onscreentextbutton" onmousedown="newMaze(10, 10, 10)">
+			<span class="onscreenbuttontext">New Huge Maze</span>	
+		</td></tr>
+		<tr><td>
+		<table><tr>
+		<td class="onscreentextbutton" id="bright" 
+			onmousedown="setLamps(.9, 'bright')" style="width:33%;">
+			<span class="onscreenbuttontext">Bright</span>
+		</td>
+		<td class="onscreentextbutton" id="dim" 
+			onmousedown="setLamps(.6, 'dim')" style="width:33%;">
+			<span class="onscreenbuttontext">Dim</span>
+		</td>
+		<td class="onscreentextbutton" id="dark" 
+			onmousedown="setLamps(.3, 'dark')" style="width:33%;">
+			<span class="onscreenbuttontext">Dark</span>
+		</tr></table>
+		</td>
+		</tr>
+	</table>
+</div>
+</body>
+</html>
