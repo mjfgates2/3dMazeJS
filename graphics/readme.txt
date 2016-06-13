@@ -1,0 +1,1 @@
+UI graphics for mazeJS.
